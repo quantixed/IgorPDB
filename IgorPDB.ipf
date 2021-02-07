@@ -13,19 +13,23 @@
 // Read PDB file keep carbon backbone only, separate chains as individual waves, make biological assembly
 
 Function IgorPDB()
+	SetupInfoWave()
+	if(FindPDBFile() < 0)
+		return -1
+	endif
 	ReadPDBFile()
-//	ChainsAsWaves()
 End
 
 Function ReadPDBFile()
-	String filePath = FindPDBFile()
-	if (strlen(filePath) == 0)
-		return -1
-	endif
+	Wave/T infoWave = root:infoWave
+	
+	String filePath = infoWave[%filePath]
 	String fileName = ParseFilePath(0, filePath, ":", 1, 0)
 	String NewFoldername = UniqueName(StringFromList(0,fileName,"."), 11, 0)
 	// create location for data
 	NewDataFolder/O/S $("root:pdb" + NewFoldername)
+	// Store name of folder in infoWave
+	infoWave[%df] = "pdb" + NewFoldername
 	
 	String columnInfo = ""				// This only works for rows starting with "ATOM"
 	columnInfo += "C=1,W=6,N=keyword;"	// "ATOM" name column								 0
@@ -111,12 +115,23 @@ Function ReadPDBFile()
 	MakeBiologicalAssembly()
 	KillWaves/Z bigMat, matIndex
 	
-	MakeGizmo(GetDataFolder(1))
+	MakeGizmo()
 	
 	SetDataFolder root:
 End
 
-STATIC Function/S FindPDBFile()
+STATIC Function SetupInfoWave()
+	Make/O/N=(5)/T root:infoWave
+	Wave/T infoWave = root:infoWave
+	SetDimLabel 0, 0, filepath, infoWave
+	SetDimLabel 0, 1, df, infoWave
+	SetDimLabel 0, 2, allChains, infoWave
+	SetDimLabel 0, 3, currentChains, infoWave
+	SetDimLabel 0, 4, maxAx, infoWave
+End
+
+STATIC Function FindPDBFile()
+	Wave/Z/T infoWave = root:infoWave
 	Variable refNum
 	String fileName
 	String filters = "PDB File (*.pdb):.pdb;"
@@ -124,19 +139,21 @@ STATIC Function/S FindPDBFile()
 	Open/D/R/F=filters/M="Select pdb file" refNum
 	fileName = S_fileName			// S_fileName is set by Open/D
 	if (strlen(fileName) == 0)		// User cancelled?
-		return ""
+		return -1
 	endif
+	infoWave[%filePath] = fileName
 	
-	return fileName
+	return 0
 End
 
 Function ChainsAsWaves()
 	Wave/T/Z chain
 	Wave/Z centersWave
+	Wave/Z/T infoWave = root:infoWave
 	// find unique list of chains
 	FindDuplicates/RT=uChains/FREE chain
 	Variable nChains = numpnts(uChains)
-	String newName
+	String newName, allChainNames = ""
 	
 	Variable i
 	
@@ -147,7 +164,10 @@ Function ChainsAsWaves()
 		w[][] = (cmpstr(chain[p],uChains[i]) == 0) ? w[p][q] : NaN
 		MatrixOp/O $newName = zapnans(w)
 		Redimension/N=(numpnts(w)/3,3) w
+		allChainNames += uChains[i] + ";"
 	endfor
+	infoWave[%allchains] = allChainNames
+	infoWave[%currentchains] = allChainNames
 	KillWaves/Z centersWave, chain
 End
 
@@ -181,9 +201,12 @@ STATIC Function MakeBiologicalAssembly()
 	endfor
 End
 
-Function MakeGizmo(folderName)
-	String folderName
-	String plotname = "p_" + folderName
+Function MakeGizmo()
+	Wave/Z/T infoWave = root:infoWave
+	String plotname = "p_" + infoWave[%df]
+	KillWindow/Z $plotName
+	
+	// here we need to use only the current chains
 	
 	String wList = WaveList("chain_*",";","")
 	Variable nWaves = ItemsInList(wList)
@@ -206,7 +229,46 @@ Function MakeGizmo(folderName)
 	ShowTools
 	ModifyGizmo showInfo
 	ModifyGizmo infoWindow={904,365,1721,662}
+	InfoWave[%maxAx] = num2str(bigNum)
 	// scale axes to be isometric and 5% larger than max
 	bigNum *= 1.05
 	ModifyGizmo setOuterBox={-bigNum, bigNum, -bigNum, bigNum, -bigNum, bigNum}
 end
+
+// remove all instances of given chain(s) from the top gizmo window
+Function RemoveChainsFromDisplay(chainList)
+	String chainList // semi-colon separated list of chain names to be removed "J;K;L;"
+	Variable nChains = ItemsInList(chainList)
+	GetGizmo objectNameList
+	String allObj = S_ObjectNames
+	Variable nObj = ItemsInList(allObj)
+	String cName, oName
+	
+	Variable i,j
+	
+	for(i = 0; i < nChains; i += 1)
+		cName = "path_" + StringFromList(i,chainList)
+		for(j = 0; j < nObj; j += 1)
+			oName = StringFromList(j,allObj)
+			if(strsearch(oName, cName, 0) >= 0 )
+				RemoveFromGizmo object=$oName
+			endif
+		endfor
+	endfor
+End
+
+Function DownsampleStructure(factor)
+	Variable factor 
+	if(factor == 1)
+		return 0
+	elseif(factor < 1)
+		return -1
+	endif
+	String wList = WaveList("chain_*",";","")
+	Variable nWaves = ItemsInList(wList)
+	Variable i
+	
+	for(i = 0; i < nWaves; i += 1)
+		Resample/DOWN=(factor) $(StringFromList(i,wList))
+	endfor
+End
