@@ -19,6 +19,9 @@ End
 
 Function ReadPDBFile()
 	String filePath = FindPDBFile()
+	if (strlen(filePath) == 0)
+		return -1
+	endif
 	String fileName = ParseFilePath(0, filePath, ":", 1, 0)
 	String NewFoldername = UniqueName(StringFromList(0,fileName,"."), 11, 0)
 	// create location for data
@@ -45,7 +48,7 @@ Function ReadPDBFile()
 	Wave/T keyword, altLoc, chain
 	
 	// remove all non ATOM lines from the waves
-	Variable count = numpnts(keyword)-1
+	Variable count = numpnts(keyword) - 1
 	
 	do 
 		if (strsearch(keyword[count], "ATOM", 0) <0 )
@@ -55,7 +58,7 @@ Function ReadPDBFile()
 	while (count >= 0 )
 
 	// keep alpha carbon backbone
-	count = numpnts(altLoc)-1
+	count = numpnts(altLoc) - 1
 	
 	do 
 		if (strsearch(altLoc[count], "CA", 0) <0 )
@@ -73,6 +76,43 @@ Function ReadPDBFile()
 	KillWaves keyword, altLoc, xval, yval, zval
 	
 	ChainsAsWaves()
+	
+	// read symmetry operators
+	columnInfo = ""				// parse REMARK lines
+	columnInfo += "C=1,W=6,N=keyword;"	// "REMARK" name column								 0
+	columnInfo += "C=1,W=4,N='_skip_';"   // Remark number (last column unspecified)	 6
+	columnInfo += "C=1,W=9,N=sym;"   // SMTRY or BIOMT   10
+	columnInfo += "C=1,W=4,N=op;"   // Operator; starts at column 19
+	columnInfo += "C=1,W=10,N=xrot;"		// Should start at column 23
+	columnInfo += "C=1,W=10,N=yrot;"		//												 39
+	columnInfo += "C=1,W=10,N=zrot;"		//												 47
+	columnInfo += "C=1,W=18,N='_skip_';"   // Start at 53
+	LoadWave/A/O/F={8,8,0}/K=2/B=columnInfo filePath
+	Wave/T xrot, yrot, zrot
+	Wave/T keyword, sym, op
+	
+	// get large symmetry matrix
+	count = numpnts(keyword)-1
+	
+	do 
+		if (strsearch(keyword[count], "REMARK", 0) < 0 || strsearch(sym[count], "BIOMT", 0) < 0)
+			DeletePoints count, 1, keyword, sym, op, xrot, yrot, zrot
+		endif
+		count -= 1
+	while (count >= 0 )
+	KillWaves/z keyword, sym
+	Make/O/N=(numpnts(op)) matIndex = str2num(op[p])
+	Make/O/N=(numpnts(xrot),3) bigMat
+	bigMat[][0] = str2num(xrot[p])
+	bigMat[][1] = str2num(yrot[p])
+	bigMat[][2] = str2num(zrot[p])
+	KillWaves/z op,xrot,yrot,zrot
+	
+	MakeBiologicalAssembly()
+	KillWaves/Z bigMat, matIndex
+	
+	MakeGizmo(GetDataFolder(1))
+	
 	SetDataFolder root:
 End
 
@@ -108,44 +148,65 @@ Function ChainsAsWaves()
 		MatrixOp/O $newName = zapnans(w)
 		Redimension/N=(numpnts(w)/3,3) w
 	endfor
-	KillWaves/Z centersWave
+	KillWaves/Z centersWave, chain
 End
 
-Function MakeGizmo(PathToData)
-	string PathToData
-	//will create Gizmo, I used existiing Gizmo and created recreation function. 
-	//these are the centers... 
-	Wave GizmoData=$(PathToData)
-	NewGizmo/K=1/W=(83,132,981,947)
-	ModifyGizmo startRecMacro=700
-	ModifyGizmo scalingMode=8
-	ModifyGizmo scalingOption=0
-	AppendToGizmo Scatter=GizmoData,name=scatter0
-	ModifyGizmo ModifyObject=scatter0,objectType=scatter,property={ scatterColorType,0}
-	ModifyGizmo ModifyObject=scatter0,objectType=scatter,property={ markerType,0}
-	ModifyGizmo ModifyObject=scatter0,objectType=scatter,property={ sizeType,0}
-	ModifyGizmo ModifyObject=scatter0,objectType=scatter,property={ rotationType,0}
-	ModifyGizmo ModifyObject=scatter0,objectType=scatter,property={ Shape,1}
-	ModifyGizmo ModifyObject=scatter0,objectType=scatter,property={ size,1}
-	ModifyGizmo ModifyObject=scatter0,objectType=scatter,property={ color,4.57771e-05,0.8,1.5259e-05,1}
+STATIC Function MakeBiologicalAssembly()
+	WAVE/Z matIndex, bigMat
+	Variable nOps = WaveMax(matIndex) // rotation matrix numbers are 1-based
+	String wList = WaveList("chain_*",";","")
+	Variable nWaves = ItemsInList(wList)
+	String wName, newName
+
+	Variable i,j
+	
+	for(i = 1; i <= nOps; i += 1)
+		Duplicate/O/FREE bigMat, rotMat
+		rotMat[][] = (matIndex[p] == i) ? rotMat[p][q] : NaN
+		MatrixOp/O rotMat = zapnans(rotMat)
+		Redimension/N=(numpnts(rotMat)/3,3) rotMat
+		
+		for(j = 0; j < nWaves; j += 1)
+			wName = StringFromList(j, wList)
+			Wave w = $wName
+			newName = wName + "_" + num2str(i)
+			MatrixOp/O $newName = w x rotMat
+		endfor
+	endfor
+	
+	// kill originals
+	for(i = 0; i < nWaves; i += 1)
+		wName = StringFromList(i, wList)
+		KillWaves/Z $wName
+	endfor
+End
+
+Function MakeGizmo(folderName)
+	String folderName
+	String plotname = "p_" + folderName
+	
+	String wList = WaveList("chain_*",";","")
+	Variable nWaves = ItemsInList(wList)
+	String wName, objName
+	NewGizmo/K=1/W=(83,132,981,947)/N=$plotName
+	Variable bigNum = 0
+	
+	Variable i
+	
+	for(i = 0; i < nWaves; i += 1)
+		wName = StringFromList(i, wList)
+		Wave w = $wName
+		objName = ReplaceString("chain",wName,"path")
+		AppendToGizmo/N=$plotName/D path=$wName,name=$objName
+		bigNum = max(bigNum,WaveMax(w))
+	endfor
+	
 	AppendToGizmo Axes=boxAxes,name=axes0
-	ModifyGizmo ModifyObject=axes0,objectType=Axes,property={-1,axisScalingMode,1}
-	ModifyGizmo ModifyObject=axes0,objectType=Axes,property={-1,axisColor,0,0,0,1}
-	ModifyGizmo modifyObject=axes0,objectType=Axes,property={-1,Clipped,0}
-	AppendToGizmo attribute pointSize=8, name=pointSize0
-	ModifyGizmo setDisplayList=0, attribute=pointSize0
-	ModifyGizmo setDisplayList=1, object=scatter0
 	ModifyGizmo setDisplayList=2, object=axes0
-	ModifyGizmo currentGroupObject=""
 	ShowTools
 	ModifyGizmo showInfo
 	ModifyGizmo infoWindow={904,365,1721,662}
-	ModifyGizmo showAxisCue=1
-	ModifyGizmo pan={0.075688,-0.110429}
-	ModifyGizmo idleEventQuaternion={-1.1184e-06,6.7395e-06,-4.52601e-06,1}
-	//these next two lines scale the Gizmo axes to be 5% larger than Max atom position value.
-	//*1.05 should make sure the all positions are inside, not clipped, and x,y, and z have same scale 
-   //(so dimensions are not distorted). 
-	WaveStats/Q GizmoData
-	ModifyGizmo setOuterBox={-1.05*V_max,1.05*V_max,-1.05*V_max,1.05*V_max,-1.05*V_max,1.05*V_max}
+	// scale axes to be isometric and 5% larger than max
+	bigNum *= 1.05
+	ModifyGizmo setOuterBox={-bigNum, bigNum, -bigNum, bigNum, -bigNum, bigNum}
 end
