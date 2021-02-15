@@ -1,16 +1,22 @@
 #pragma TextEncoding = "UTF-8"
 #pragma rtGlobals=3		// Use modern global access method and strict wave access.
 #pragma DefaultTab={3,20,4}		// Set default tab width in Igor Pro 9 and later
-// This set of procedures will read PDB (protein data bank) files:
-// https://en.wikipedia.org/wiki/Protein_Data_Bank_(file_format)
-// Contributors:
-//	Jan Ilavsky, 2018
-//	free to use or modify, no copyright.
-//	Major thanks to John Weeks who wrote most of early code when I needed it
-//	Thanks to tcaus, Igor Exchange user who described the pdb file structure:
-//	reference: https://www.wavemetrics.com/forum/general/igor-does-not-recognize-decim…
 
 // Read PDB file keep carbon backbone only, separate chains as individual waves, make biological assembly
+
+////////////////////////////////////////////////////////////////////////
+// Menu items
+////////////////////////////////////////////////////////////////////////
+
+Menu "Macros"
+	"Read PDB...", /Q, IgorPDB()
+	"Start Over", /Q, CleanSlate()
+End
+
+
+////////////////////////////////////////////////////////////////////////
+// Master functions and wrappers
+////////////////////////////////////////////////////////////////////////
 
 Function IgorPDB()
 	SetupInfoWave()
@@ -19,6 +25,10 @@ Function IgorPDB()
 	endif
 	ReadPDBFile()
 End
+
+////////////////////////////////////////////////////////////////////////
+// Main functions
+////////////////////////////////////////////////////////////////////////
 
 Function ReadPDBFile()
 	Wave/T infoWave = root:infoWave
@@ -115,7 +125,7 @@ Function ReadPDBFile()
 	MakeBiologicalAssembly()
 	KillWaves/Z bigMat, matIndex
 	
-	MakeGizmo()
+	MakeGizmo(0)
 	
 	SetDataFolder root:
 End
@@ -201,12 +211,14 @@ STATIC Function MakeBiologicalAssembly()
 	endfor
 End
 
-Function MakeGizmo()
+Function MakeGizmo(thick)
+	Variable thick
+	
 	Wave/Z/T infoWave = root:infoWave
 	String plotname = "p_" + infoWave[%df]
 	KillWindow/Z $plotName
 	
-	// here we need to use only the current chains
+	SetDatafolder $("root:" + infoWave[%df])
 	
 	String wList = WaveList("chain_*",";","")
 	Variable nWaves = ItemsInList(wList)
@@ -218,14 +230,21 @@ Function MakeGizmo()
 	
 	for(i = 0; i < nWaves; i += 1)
 		wName = StringFromList(i, wList)
+		if(chainIsCurrent(wName) == 0)
+			continue
+		endif
 		Wave w = $wName
 		objName = ReplaceString("chain",wName,"path")
 		AppendToGizmo/N=$plotName/D path=$wName,name=$objName
+		if(thick > 0)
+			ModifyGizmo/N=$plotName ModifyObject=$objName,objectType=path,property={ drawTube,1}
+			ModifyGizmo/N=$plotName ModifyObject=$objName,objectType=path,property={ fixedRadius,thick}
+		endif
 		bigNum = max(bigNum,WaveMax(w))
 	endfor
 	
 	AppendToGizmo Axes=boxAxes,name=axes0
-	ModifyGizmo setDisplayList=2, object=axes0
+	ModifyGizmo setDisplayList=-1, object=axes0
 	ShowTools
 	ModifyGizmo showInfo
 	ModifyGizmo infoWindow={904,365,1721,662}
@@ -235,11 +254,35 @@ Function MakeGizmo()
 	ModifyGizmo setOuterBox={-bigNum, bigNum, -bigNum, bigNum, -bigNum, bigNum}
 end
 
+STATIC Function ChainIsCurrent(wStr)
+	String wStr
+	Wave/T infoWave = root:infoWave
+	String currentList = infoWave[%currentChains]
+	Variable nChains = ItemsInList(currentList)
+	String testStr
+	
+	Variable i
+	
+	for(i = 0; i < nChains; i += 1)
+		testStr = "chain_" + StringFromList(i,currentList)
+		if(strsearch(wStr,testStr,0) >= 0)
+			return 1
+		endif
+	endfor
+	// if we got to here there was no match
+	return 0
+End
+
 // remove all instances of given chain(s) from the top gizmo window
+// this could be revamped by displaying a GUI of all chains with current chains ticked
+// also the gizmo can now be rebuilt after the infoWave[%currentChains] is updated!
 Function RemoveChainsFromDisplay(chainList)
 	String chainList // semi-colon separated list of chain names to be removed "J;K;L;"
+	Wave/Z/T infoWave = root:infoWave
+	infoWave[%currentChains] = RemoveFromList(chainList,infoWave[%currentChains])
+	String plotName = "p_" + infoWave[%df]
 	Variable nChains = ItemsInList(chainList)
-	GetGizmo objectNameList
+	GetGizmo/N=$plotName objectNameList
 	String allObj = S_ObjectNames
 	Variable nObj = ItemsInList(allObj)
 	String cName, oName
@@ -251,17 +294,19 @@ Function RemoveChainsFromDisplay(chainList)
 		for(j = 0; j < nObj; j += 1)
 			oName = StringFromList(j,allObj)
 			if(strsearch(oName, cName, 0) >= 0 )
-				RemoveFromGizmo object=$oName
+				RemoveFromGizmo/N=$plotName object=$oName
 			endif
 		endfor
 	endfor
+	Variable bigNum = 1.05 * str2num(infoWave[%maxAx])
+	ModifyGizmo/N=$plotName setOuterBox={-bigNum, bigNum, -bigNum, bigNum, -bigNum, bigNum}
 End
 
-Function DownsampleStructure(factor)
-	Variable factor 
-	if(factor == 1)
-		return 0
-	elseif(factor < 1)
+Function DownsampleStructure(downVar,smoothVar)
+	Variable downVar, smoothVar
+	Wave/Z/T infoWave = root:infoWave
+	SetDataFolder $("root:" + infoWave[%df])
+	if(downVar < 0 || smoothVar < 0)
 		return -1
 	endif
 	String wList = WaveList("chain_*",";","")
@@ -269,6 +314,57 @@ Function DownsampleStructure(factor)
 	Variable i
 	
 	for(i = 0; i < nWaves; i += 1)
-		Resample/DOWN=(factor) $(StringFromList(i,wList))
+		Wave w = $(StringFromList(i,wList))
+		if (downVar > 1)
+			Resample/DOWN=(downVar) w
+		endif
+		if (smoothVar >= 1)
+			Smooth/DIM=0 smoothVar, w
+		endif
+	endfor
+	
+	MakeGizmo(6)
+	SetDataFolder root:
+End
+
+////////////////////////////////////////////////////////////////////////
+// Utility functions
+////////////////////////////////////////////////////////////////////////
+Function CleanSlate()
+	SetDataFolder root:
+	String fullList = WinList("*", ";","WIN:65607") // gizmos as well
+	Variable allItems = ItemsInList(fullList)
+	String name
+	Variable i
+ 
+	for(i = 0; i < allItems; i += 1)
+		name = StringFromList(i, fullList)
+		KillWindow/Z $name		
+	endfor
+	
+//	KillDataFolder/Z root:data:
+		
+	// Kill waves in root
+	KillWaves/A/Z
+	// Look for data folders and kill them
+	DFREF dfr = GetDataFolderDFR()
+	allItems = CountObjectsDFR(dfr, 4)
+	for(i = 0; i < allItems; i += 1)
+		name = GetIndexedObjNameDFR(dfr, 4, i)
+		KillDataFolder $name		
+	endfor
+End
+
+STATIC Function KillTheseWaves(wList)
+	String wList
+	Variable nWaves = ItemsInList(wList)
+	String wName
+	
+	Variable i
+	
+	for(i = 0; i < nWaves; i += 1)
+		wName = StringFromList(i, wList)
+		Wave w0 = $wName
+		KillWaves/Z w0
 	endfor
 End
