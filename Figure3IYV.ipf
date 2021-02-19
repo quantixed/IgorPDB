@@ -9,6 +9,7 @@ Menu "Macros"
 		"TDs Below Hub", /Q, MakeBasicFigure(1)
 		"Vertices Reverse", /Q, MakeBasicFigure(2)
 		"TDs Below Hub Reverse", /Q, MakeBasicFigure(3)
+		"Final Schematic", /Q, MakeBasicFigure(7)
 	End
 End
 
@@ -26,7 +27,11 @@ Function MakeBasicFigure(vIn)
 	endif
 	BeautifyGizmo()	
 	if((vIn & 2^1) != 0)
+		//ModifyGizmo opName=ortho0, operation=ortho,data={1,-1,1,-1,-0.4,-2}
 		LookAtReverse()
+	endif
+	if((vIn & 2^2) != 0)
+		ModifyGizmo SETQUATERNION={0.271037,-0.923299,0.183335,0.201122}
 	endif
 End
 
@@ -153,7 +158,8 @@ End
 
 Function LookAtReverse()
 	ModifyGizmo appendRotation={1,0,0,0}
-	ModifyGizmo modifyObject=light0,objectType=light,property={ position,0.2468,0.1860,-0.9511,0.0000}
-	ModifyGizmo modifyObject=light0,objectType=light,property={ direction,0.2468,0.1860,-0.9511}
-	ModifyGizmo opName=frustum0, operation=frustum, data={-1,1,-1,1,0.5,10}
+	ModifyGizmo modifyObject=light0,objectType=light,property={ position,0.0000,0.0000,-1.0000,0.0000}
+	ModifyGizmo modifyObject=light0,objectType=light,property={ direction,0.0000,0.0000,-1.0000}
+	ModifyGizmo SETQUATERNION={0.6618148684501648,-0.6959876418113708,0.09318086504936218,0.2625178694725037}
+	ModifyGizmo opName=ortho0, operation=ortho,data={-1,1,-1,1,0.4,2}
 End
