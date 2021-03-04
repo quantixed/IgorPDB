@@ -9,7 +9,9 @@ Menu "Macros"
 		"TDs Below Hub", /Q, MakeBasicFigure(1)
 		"Vertices Reverse", /Q, MakeBasicFigure(2)
 		"TDs Below Hub Reverse", /Q, MakeBasicFigure(3)
-		"Final Schematic", /Q, MakeBasicFigure(7)
+		"TDs Below Hub Schematic", /Q, MakeBasicFigure(7)
+		"Vertices Schematic Side", /Q, MakeBasicFigure(10)
+		"TDs Below Hub Schematic Side", /Q, MakeBasicFigure(11)
 	End
 End
 
@@ -31,7 +33,15 @@ Function MakeBasicFigure(vIn)
 		LookAtReverse()
 	endif
 	if((vIn & 2^2) != 0)
+		// this is the view from the vesicle with the TDs organised to match the schematic diagram
 		ModifyGizmo SETQUATERNION={0.271037,-0.923299,0.183335,0.201122}
+	endif
+	if((vIn & 2^3) != 0)
+		// this is the view with the vertex at the top with the TDs organised to match the schematic diagram
+		ModifyGizmo SETQUATERNION={0.034713,-0.71831,-0.60628,0.33949}
+		ModifyGizmo opName=ortho0, operation=ortho,data={-0.5,0.5,0.2,1.2,-0.5,1}
+		ModifyGizmo modifyObject=light0,objectType=light,property={ position,-0.7233,0.5064,0.4695,0.0000}
+		ModifyGizmo modifyObject=light0,objectType=light,property={ direction,-0.7233,0.5064,0.4695}
 	endif
 End
 

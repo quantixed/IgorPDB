@@ -368,3 +368,9 @@ STATIC Function KillTheseWaves(wList)
 		KillWaves/Z w0
 	endfor
 End
+
+Function WhatQuaternion()
+	GetGizmo curQuaternion
+	String theString = num2str(GizmoQuat_x) + "," + num2str(GizmoQuat_y) + "," + num2str(GizmoQuat_z) + "," + num2str(GizmoQuat_w)
+	Print theString
+End
