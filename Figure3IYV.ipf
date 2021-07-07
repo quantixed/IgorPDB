@@ -18,7 +18,9 @@ End
 Function MakeBasicFigure(vIn)
 	Variable vIn
 	CleanSlate()
-	IgorPDB() // find 3IYV.pdb
+	if(IgorPDB() == -1) // find 3IYV.pdb
+		return -1
+	endif
 	RemoveChainsFromDisplay("J;K;L;M;N;O;P;Q;R;")
 	DownSampleStructure(5,25)
 	FlushColours()
@@ -63,32 +65,6 @@ Function FlushColours()
 			ModifyGizmo ModifyObject=$oName,objectType=path,property={ numSegments,60}
 		endif
 	endfor
-End
-
-Function ColourTriskeliaSochaki()
-	// highlighted triskelion
-	ColourThesePaths(1,"ABC",132,187,135) // light green
-	// facing highlighted thigh
-	ColourThesePaths(1,"DEF",40,86,53) // dark green
-	ColourThesePaths(2,"ABC",228,163,95) // orange
-	ColourThesePaths(6,"ABC",241,226,109) // yellow
-	// under the thigh interaction
-	ColourThesePaths(5,"ABC",191,149,180) // pink
-	ColourThesePaths(2,"DEF",23,24,51) // dark purple
-	ColourThesePaths(6,"GHI",122,112,159) // medium purple
-End
-
-Function ColourTriskeliaTolBright()
-	// highlighted triskelion
-	ColourThesePaths(1,"ABC",187,187,187) // grey
-	// facing highlighted thigh
-	ColourThesePaths(1,"DEF",34,136,51) // green
-	ColourThesePaths(2,"ABC",68,119,170) // blue
-	ColourThesePaths(6,"ABC",238,102,119) // red
-	// under the thigh interaction
-	ColourThesePaths(5,"ABC",204,187,68) // yellow
-	ColourThesePaths(2,"DEF",170,51,119) // purple
-	ColourThesePaths(6,"GHI",102,204,238) // cyan
 End
 
 Function ColourTriskeliaTol()
