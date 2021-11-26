@@ -18,7 +18,7 @@ End
 Function MakeBasicFigure(vIn)
 	Variable vIn
 	CleanSlate()
-	if(IgorPDB() == -1) // find 3IYV.pdb
+	if(SimplifyPDB() == -1) // find 3IYV.pdb
 		return -1
 	endif
 	RemoveChainsFromDisplay("J;K;L;M;N;O;P;Q;R;")

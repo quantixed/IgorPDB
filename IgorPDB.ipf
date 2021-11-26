@@ -9,7 +9,8 @@
 ////////////////////////////////////////////////////////////////////////
 
 Menu "Macros"
-	"Read PDB...", /Q, IgorPDB()
+	"Simplify PDB...", /Q, SimplifyPDB()
+	"Read PDB...", /Q, ReadPDB()
 	"Start Over", /Q, CleanSlate()
 End
 
@@ -18,19 +19,31 @@ End
 // Master functions and wrappers
 ////////////////////////////////////////////////////////////////////////
 
-Function IgorPDB()
+Function SimplifyPDB()
 	SetupInfoWave()
 	if(FindPDBFile() < 0)
 		return -1
 	endif
-	ReadPDBFile()
+	ReadPDBFile(1,1)
+End
+
+Function ReadPDB()
+	SetupInfoWave()
+	if(FindPDBFile() < 0)
+		return -1
+	endif
+	ReadPDBFile(0,0)
 End
 
 ////////////////////////////////////////////////////////////////////////
 // Main functions
 ////////////////////////////////////////////////////////////////////////
 
-Function ReadPDBFile()
+///	@param	alphaCarbon	variable bit 0 set = alphaCarbon only
+///	@param	bioAssembly	variable bit 0 set = make biological assembly
+Function ReadPDBFile(alphaCarbon,bioAssembly)
+	Variable alphaCarbon, bioAssembly
+	
 	Wave/T infoWave = root:infoWave
 	
 	String filePath = infoWave[%filePath]
@@ -45,9 +58,9 @@ Function ReadPDBFile()
 	columnInfo += "C=1,W=6,N=keyword;"	// "ATOM" name column								 0
 	columnInfo += "C=1,W=6,N='_skip_';"   // Atom number (last column unspecified)	 7
 	columnInfo += "C=1,W=5,N=altLoc;"   // Atom name; last character is "alt Loc"   13
-	columnInfo += "C=1,W=3,N='_skip_';"   // Residue name; starts at column 18		18
+	columnInfo += "C=1,W=3,N=residue;"   // Residue name; starts at column 18		18
 	columnInfo += "C=1,W=2,N=chain;"   // Chain identifier in column 22 (21=?) 21
-	columnInfo += "C=1,W=4,N='_skip_';"   // Residue sequence number					  23
+	columnInfo += "C=1,W=4,N=atomNum;"   // Residue sequence number					  23
 	columnInfo += "C=1,W=4,N='_skip_';"   // Blank stuff									  27
 	columnInfo += "C=1,W=8,N=xval;"		// Should start at column 31			   31
 	columnInfo += "C=1,W=8,N=yval;"		//												 39
@@ -59,27 +72,28 @@ Function ReadPDBFile()
 	// Now load the data...
 	LoadWave/A/O/F={14,8,0}/K=2/B=columnInfo filePath
 	Wave/T xval, yval, zval
-	Wave/T keyword, altLoc, chain
+	Wave/T keyword, atomNum, altLoc, residue, chain
 	
 	// remove all non ATOM lines from the waves
 	Variable count = numpnts(keyword) - 1
 	
 	do 
 		if (strsearch(keyword[count], "ATOM", 0) <0 )
-			DeletePoints count, 1, keyword, altLoc, chain, xval, yval, zval
+			DeletePoints count, 1, keyword, altLoc, residue, chain, atomNum, xval, yval, zval
 		endif
 		count -= 1
 	while (count >= 0 )
-
-	// keep alpha carbon backbone
-	count = numpnts(altLoc) - 1
 	
-	do 
-		if (strsearch(altLoc[count], "CA", 0) <0 )
-			DeletePoints count, 1, keyword, altLoc, chain, xval, yval, zval
-		endif
-		count -= 1
-	while (count >= 0 )
+	if(alphaCarbon == 1)
+		// keep alpha carbon backbone only
+		count = numpnts(altLoc) - 1
+		do 
+			if (strsearch(altLoc[count], "CA", 0) <0 )
+				DeletePoints count, 1, keyword, altLoc, residue, chain, xval, yval, zval
+			endif
+			count -= 1
+		while (count >= 0 )
+	endif
 	
 	// create location for centers of atoms in Gizmo and assign the positions. 
 	Make/O/D/N=(numpnts(xval),3) centersWave = NaN
@@ -87,43 +101,45 @@ Function ReadPDBFile()
 	centersWave[][1] = str2num(yval[p])
 	centersWave[][2] = str2num(zval[p])
 	// cleanup
-	KillWaves keyword, altLoc, xval, yval, zval
+	KillWaves/Z keyword, xval, yval, zval
 	
 	ChainsAsWaves()
 	
-	// read symmetry operators
-	columnInfo = ""				// parse REMARK lines
-	columnInfo += "C=1,W=6,N=keyword;"	// "REMARK" name column								 0
-	columnInfo += "C=1,W=4,N='_skip_';"   // Remark number (last column unspecified)	 6
-	columnInfo += "C=1,W=9,N=sym;"   // SMTRY or BIOMT   10
-	columnInfo += "C=1,W=4,N=op;"   // Operator; starts at column 19
-	columnInfo += "C=1,W=10,N=xrot;"		// Should start at column 23
-	columnInfo += "C=1,W=10,N=yrot;"		//												 39
-	columnInfo += "C=1,W=10,N=zrot;"		//												 47
-	columnInfo += "C=1,W=18,N='_skip_';"   // Start at 53
-	LoadWave/A/O/F={8,8,0}/K=2/B=columnInfo filePath
-	Wave/T xrot, yrot, zrot
-	Wave/T keyword, sym, op
+	if(bioAssembly == 1)
+		// read symmetry operators
+		columnInfo = ""				// parse REMARK lines
+		columnInfo += "C=1,W=6,N=keyword;"	// "REMARK" name column								 0
+		columnInfo += "C=1,W=4,N='_skip_';"   // Remark number (last column unspecified)	 6
+		columnInfo += "C=1,W=9,N=sym;"   // SMTRY or BIOMT   10
+		columnInfo += "C=1,W=4,N=op;"   // Operator; starts at column 19
+		columnInfo += "C=1,W=10,N=xrot;"		// Should start at column 23
+		columnInfo += "C=1,W=10,N=yrot;"		//												 39
+		columnInfo += "C=1,W=10,N=zrot;"		//												 47
+		columnInfo += "C=1,W=18,N='_skip_';"   // Start at 53
+		LoadWave/A/O/F={8,8,0}/K=2/B=columnInfo filePath
+		Wave/T xrot, yrot, zrot
+		Wave/T keyword, sym, op
+		
+		// get large symmetry matrix
+		count = numpnts(keyword)-1
+		
+		do 
+			if (strsearch(keyword[count], "REMARK", 0) < 0 || strsearch(sym[count], "BIOMT", 0) < 0)
+				DeletePoints count, 1, keyword, sym, op, xrot, yrot, zrot
+			endif
+			count -= 1
+		while (count >= 0 )
+		KillWaves/z keyword, sym
+		Make/O/N=(numpnts(op)) matIndex = str2num(op[p])
+		Make/O/N=(numpnts(xrot),3) bigMat
+		bigMat[][0] = str2num(xrot[p])
+		bigMat[][1] = str2num(yrot[p])
+		bigMat[][2] = str2num(zrot[p])
+		KillWaves/z op,xrot,yrot,zrot
 	
-	// get large symmetry matrix
-	count = numpnts(keyword)-1
-	
-	do 
-		if (strsearch(keyword[count], "REMARK", 0) < 0 || strsearch(sym[count], "BIOMT", 0) < 0)
-			DeletePoints count, 1, keyword, sym, op, xrot, yrot, zrot
-		endif
-		count -= 1
-	while (count >= 0 )
-	KillWaves/z keyword, sym
-	Make/O/N=(numpnts(op)) matIndex = str2num(op[p])
-	Make/O/N=(numpnts(xrot),3) bigMat
-	bigMat[][0] = str2num(xrot[p])
-	bigMat[][1] = str2num(yrot[p])
-	bigMat[][2] = str2num(zrot[p])
-	KillWaves/z op,xrot,yrot,zrot
-	
-	MakeBiologicalAssembly()
-	KillWaves/Z bigMat, matIndex
+		MakeBiologicalAssembly()
+		KillWaves/Z bigMat, matIndex
+	endif
 	
 	MakeGizmo(0)
 	
@@ -157,7 +173,7 @@ STATIC Function FindPDBFile()
 End
 
 Function ChainsAsWaves()
-	Wave/T/Z chain
+	Wave/T/Z chain, atomNum, altLoc, residue
 	Wave/Z centersWave
 	Wave/Z/T infoWave = root:infoWave
 	// find unique list of chains
@@ -175,10 +191,37 @@ Function ChainsAsWaves()
 		MatrixOp/O $newName = zapnans(w)
 		Redimension/N=(numpnts(w)/3,3) w
 		allChainNames += uChains[i] + ";"
+		// generate waves for altLoc and residue per chain too
+		Duplicate/O/T residue, $("resi_" + uChains[i])
+		Wave/T resiW = $("resi_" + uChains[i])
+		resiW[] = SelectString(cmpstr(chain[p],uChains[i]),resiW[p],"")
+		DeleteEmptyRowsFromTextWave(resiW)
+		Duplicate/O/T altLoc, $("atom_" + uChains[i])
+		Wave/T atomW = $("resi_" + uChains[i])
+		atomW[] = SelectString(cmpstr(chain[p],uChains[i]),atomW[p],"")
+		DeleteEmptyRowsFromTextWave(atomW)
+		Duplicate/O/T atomNum, $("resn_" + uChains[i])
+		Wave/T numW = $("resn_" + uChains[i])
+		numW[] = SelectString(cmpstr(chain[p],uChains[i]),numW[p],"")
+		DeleteEmptyRowsFromTextWave(numW)
 	endfor
 	infoWave[%allchains] = allChainNames
 	infoWave[%currentchains] = allChainNames
-	KillWaves/Z centersWave, chain
+	KillWaves/Z centersWave, chain, altLoc, residue, atomNum
+End
+
+STATIC Function DeleteEmptyRowsFromTextWave(tw)
+    Wave/T tw
+
+    Variable numPoints = numpnts(tw)
+    
+    Variable i
+    
+    for(i = numPoints-1; i >= 0; i -= 1)
+        if (strlen(tw[i]) == 0)
+            DeletePoints i, 1, tw
+        endif
+    endfor
 End
 
 STATIC Function MakeBiologicalAssembly()
@@ -240,7 +283,7 @@ Function MakeGizmo(thick)
 			ModifyGizmo/N=$plotName ModifyObject=$objName,objectType=path,property={ drawTube,1}
 			ModifyGizmo/N=$plotName ModifyObject=$objName,objectType=path,property={ fixedRadius,thick}
 		endif
-		bigNum = max(bigNum,WaveMax(w))
+		bigNum = max(bigNum,WaveMax(w)) // historical could remove
 	endfor
 	
 	AppendToGizmo Axes=boxAxes,name=axes0
@@ -248,11 +291,21 @@ Function MakeGizmo(thick)
 	ShowTools
 	ModifyGizmo showInfo
 	ModifyGizmo infoWindow={904,365,1721,662}
-	InfoWave[%maxAx] = num2str(bigNum)
-	// scale axes to be isometric and 5% larger than max
-	bigNum *= 1.05
-	ModifyGizmo setOuterBox={-bigNum, bigNum, -bigNum, bigNum, -bigNum, bigNum}
-end
+	InfoWave[%maxAx] = num2str(bigNum) //historical could remove
+
+	GetGizmo dataLimits
+	Variable centreX,centreY,centreZ
+	centreX = GizmoXmin + ((GizmoXmax - GizmoXmin) / 2)
+	centreY = GizmoYMin + ((GizmoYmax - GizmoYmin) / 2)
+	centreZ = GizmoZmin + ((GizmoZmax - GizmoZmin) / 2)
+	Variable bigRange = 0
+	bigRange = max(bigRange, GizmoXmax - GizmoXmin)
+	bigRange = max(bigRange, GizmoYmax - GizmoYmin)
+	bigRange = max(bigRange, GizmoZmax - GizmoZmin)
+	Variable halfRange = 1.025 * (bigRange / 2) // make slightly larger
+	ModifyGizmo/N=$plotName setOuterBox={centreX - halfRange, centreX + halfRange, centreY - halfRange, centreY + halfRange, centreZ - halfRange, centreZ + halfRange}
+	ModifyGizmo/N=$plotName scalingOption=0
+End
 
 STATIC Function ChainIsCurrent(wStr)
 	String wStr
@@ -373,4 +426,33 @@ Function WhatQuaternion()
 	GetGizmo curQuaternion
 	String theString = num2str(GizmoQuat_x) + "," + num2str(GizmoQuat_y) + "," + num2str(GizmoQuat_z) + "," + num2str(GizmoQuat_w)
 	Print theString
+End
+
+Function RenumberPDB(chainID,oldW,newW)
+	String chainID
+	Wave oldW, newW
+	
+	String wName = "resn_" + chainID
+	WAVE/T/Z tw = $wName
+	if(!WaveExists(tw))
+		return -1
+	endif
+	
+	if(numpnts(oldW) != numpnts(newW))
+		return -1
+	endif
+
+	Make/O/N=(numpnts(tw))/T tempW = ""
+	Variable nRow = numpnts(oldW)
+	String oldStr, newStr
+	
+	Variable i
+	
+	for(i = 0; i < nRow; i += 1)
+		oldStr = num2str(oldW[i])
+		newStr = num2str(newW[i])
+		tempW[] = SelectString(cmpstr(tw[p],oldStr),newStr,tempW[p])
+	endfor
+	KillWaves/Z tw
+	Rename tempW, $wName
 End
